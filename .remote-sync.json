@@ -1,0 +1,11 @@
+{
+  "transport": "scp",
+  "uploadOnSave": true,
+  "hostname": "cdf.toronto.edu",
+  "target": "/h/u15/c1/00/c1chengc/CSC418/a2",
+  "ignore": [
+    ".git/**"
+  ],
+  "username": "c1chengc",
+  "password": "bfkc5099"
+}
