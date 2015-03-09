@@ -631,7 +631,7 @@ void initGlui()
     glui_lightsource = GLUI_Master.create_glui("Light Source Control", 0, 0, Win[1]+64);
 
     // Create controls to specify root position and orientation
-	glui_panel = glui_lightsource->add_panel("Root");
+	glui_panel = glui_lightsource->add_panel("Light Source");
 
 	glui_spinner = glui_lightsource->add_spinner_to_panel(glui_panel, "rotate:", GLUI_SPINNER_FLOAT, joint_ui_data->getDOFPtr(Keyframe::LIGHT_ROTATE));
 	glui_spinner->set_float_limits(LIGHT_ROTATE_MIN, LIGHT_ROTATE_MAX, GLUI_LIMIT_CLAMP);
@@ -942,8 +942,8 @@ void display(void)
           case OUTLINED:
             glColor3f(0.0, 0.0, 0.0);
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-            // glEnable(GL_POLYGON_OFFSET_FILL);
-			// glPolygonOffset( 1, 1 );
+            glEnable(GL_POLYGON_OFFSET_FILL);
+      			glPolygonOffset( 1, 1 );
             drawBody();
             glColor3f(1.0f,1.0f,1.0f);
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
