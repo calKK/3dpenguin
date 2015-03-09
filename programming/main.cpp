@@ -67,6 +67,7 @@ int Win[2];					// window (x,y) size
 GLUI* glui_joints;			// Glui window with joint controls
 GLUI* glui_keyframe;		// Glui window with keyframe controls
 GLUI* glui_render;			// Glui window for render style
+GLUI* glui_lightsource;     // Glui window for light source controls
 
 char msg[256];				// String used for status message
 GLUI_StaticText* status;	// Status message ("Status: <msg>")
@@ -89,8 +90,8 @@ const GLdouble NEAR_CLIP   = 0.1;
 const GLdouble FAR_CLIP    = 1000.0;
 
 // Render settings
-enum { WIREFRAME, SOLID, OUTLINED };	// README: the different render styles
-int renderStyle = WIREFRAME;			// README: the selected render style
+enum { WIREFRAME, SOLID, OUTLINED, METAL, MATTE };	// README: the different render styles
+int renderStyle = WIREFRAME;			            // README: the selected render style
 
 // Animation settings
 int animate_mode = 0;			// 0 = no anim, 1 = animate
@@ -174,6 +175,11 @@ const float ELBOW_MAX            = 75.0;
 const float KNEE_MIN             =  0.0;
 const float KNEE_MAX             = 75.0;
 
+const float LIGHT_RADIUS_MIN = 5.0;
+const float LIGHT_RADIUS_MAX = 30.0;
+
+const float LIGHT_ROTATE_MIN = -180.0;
+const float LIGHT_ROTATE_MAX = 180.0;
 
 // ***********  FUNCTION HEADER DECLARATIONS ****************
 
@@ -196,6 +202,13 @@ void motion(int x, int y);
 // Functions to help draw the object
 Vector getInterpolatedJointDOFS(float time);
 void drawCube();
+void drawBody();
+void drawHead();
+void drawBeak();
+void drawArm();
+void drawHand();
+void drawLeg();
+void drawFoot();
 
 
 // Image functions
@@ -304,13 +317,15 @@ void updateKeyframeButton(int)
 	///////////////////////////////////////////////////////////
 
 	// Get the keyframe ID from the UI
-	int keyframeID = 0;
+	int keyframeID = joint_ui_data->getID();
 
 	// Update the 'maxValidKeyframe' index variable
 	// (it will be needed when doing the interpolation)
+    maxValidKeyframe = keyframeID;
 
 	// Update the appropriate entry in the 'keyframes' array
 	// with the 'joint_ui_data' data
+    keyframes[keyframeID] = *joint_ui_data;
 
 	// Let the user know the values have been updated
 	sprintf(msg, "Status: Keyframe %d updated successfully", keyframeID);
@@ -613,6 +628,18 @@ void initGlui()
 
 	//
 	// ***************************************************
+    glui_lightsource = GLUI_Master.create_glui("Light Source Control", 0, 0, Win[1]+64);
+
+    // Create controls to specify root position and orientation
+	glui_panel = glui_lightsource->add_panel("Root");
+
+	glui_spinner = glui_lightsource->add_spinner_to_panel(glui_panel, "rotate:", GLUI_SPINNER_FLOAT, joint_ui_data->getDOFPtr(Keyframe::LIGHT_ROTATE));
+	glui_spinner->set_float_limits(LIGHT_ROTATE_MIN, LIGHT_ROTATE_MAX, GLUI_LIMIT_CLAMP);
+	glui_spinner->set_speed(SPINNER_SPEED);
+
+	glui_spinner = glui_lightsource->add_spinner_to_panel(glui_panel, "radius:", GLUI_SPINNER_FLOAT, joint_ui_data->getDOFPtr(Keyframe::LIGHT_RADIUS));
+	glui_spinner->set_float_limits(LIGHT_RADIUS_MIN, LIGHT_RADIUS_MAX, GLUI_LIMIT_CLAMP);
+	glui_spinner->set_speed(SPINNER_SPEED);
 
 
 	// Create GLUI window (keyframe controls) ************
@@ -668,6 +695,8 @@ void initGlui()
 	glui_render->add_radiobutton_to_group(glui_radio_group, "Wireframe");
 	glui_render->add_radiobutton_to_group(glui_radio_group, "Solid");
 	glui_render->add_radiobutton_to_group(glui_radio_group, "Solid w/ outlines");
+    glui_render->add_radiobutton_to_group(glui_radio_group, "Metallic");
+    glui_render->add_radiobutton_to_group(glui_radio_group, "Matte");
 	//
 	// ***************************************************
 
@@ -676,6 +705,7 @@ void initGlui()
 	glui_joints->set_main_gfx_window(windowID);
 	glui_keyframe->set_main_gfx_window(windowID);
 	glui_render->set_main_gfx_window(windowID);
+    glui_lightsource->set_main_gfx_window(windowID);
 }
 
 
@@ -685,6 +715,9 @@ void initGl(void)
     // glClearColor (red, green, blue, alpha)
     // Ignore the meaning of the 'alpha' value for now
     glClearColor(0.7f,0.7f,0.9f,1.0f);
+    glEnable(GL_DEPTH_TEST); // enable depth testing and writing
+
+    glEnable(GL_NORMALIZE);
 }
 
 
@@ -800,6 +833,7 @@ void display(void)
     // Clear the screen with the background colour
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+
     // Setup the model-view transformation matrix
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
@@ -852,6 +886,34 @@ void display(void)
 	//   rendered.
     ///////////////////////////////////////////////////////////
 
+    float BODY_SCALE = 1.5;
+    float HEAD_SCALE = 1.0;
+
+    // set material properties
+    GLfloat mat_ambient[]={0.329412f,0.223529f,0.027451f};
+    GLfloat mat_diffuse[]={0.780392f,0.568627f,0.113725f };
+    GLfloat mat_specular[]={0.992157f, 0.941176f, 0.807843f };
+
+    // set lighting attributes
+    GLfloat ambient[] = {0.2, 0.2, 0.2, 1.0};
+    GLfloat diffuse[] = {1.0,1.0,1.0,1.0};
+    GLfloat specular[] = {1.0,1.0,1.0,1.0};
+    GLfloat position[] = {0.0,LIGHT_RADIUS_MIN,0.0,1.0};
+    //
+    // position[0] = cos(joint_ui_data->getDOF(Keyframe::LIGHT_ROTATE));
+    // position[1] = sin(joint_ui_data->getDOF(Keyframe::LIGHT_ROTATE));
+
+    glLightfv(GL_LIGHT0, GL_AMBIENT, ambient);
+	glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuse);
+	glLightfv(GL_LIGHT0, GL_SPECULAR, specular);
+
+    glPushMatrix();
+        glTranslatef(0.0, joint_ui_data->getDOF(Keyframe::LIGHT_RADIUS), 0.0);
+        glRotatef(joint_ui_data->getDOF(Keyframe::LIGHT_ROTATE), 0.0, 0.0, 1.0);
+        glLightfv(GL_LIGHT0, GL_POSITION, position);
+
+    glPopMatrix();
+
 	// SAMPLE CODE **********
 	//
 	glPushMatrix();
@@ -860,14 +922,506 @@ void display(void)
 		glTranslatef(joint_ui_data->getDOF(Keyframe::ROOT_TRANSLATE_X),
 					 joint_ui_data->getDOF(Keyframe::ROOT_TRANSLATE_Y),
 					 joint_ui_data->getDOF(Keyframe::ROOT_TRANSLATE_Z));
-		glRotatef(30.0, 0.0, 1.0, 0.0);
-		glRotatef(30.0, 1.0, 0.0, 0.0);
+
+        glRotatef(joint_ui_data->getDOF(Keyframe::ROOT_ROTATE_X), 1.0, 0.0, 0.0);
+        glRotatef(joint_ui_data->getDOF(Keyframe::ROOT_ROTATE_Y), 0.0, 1.0, 0.0);
+        glRotatef(joint_ui_data->getDOF(Keyframe::ROOT_ROTATE_Z), 0.0, 0.0, 1.0);
+
+        glScalef(1.0,BODY_SCALE,1.0);
 
 		// determine render style and set glPolygonMode appropriately
+        switch(renderStyle){
+          case WIREFRAME:
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            glColor3f(0.0,0.0,0.0);
+            break;
+          case SOLID:
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            glColor3f(0.0,0.0,0.0);
+            break;
+          case OUTLINED:
+            glColor3f(0.0, 0.0, 0.0);
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            // glEnable(GL_POLYGON_OFFSET_FILL);
+			// glPolygonOffset( 1, 1 );
+            drawBody();
+            glColor3f(1.0f,1.0f,1.0f);
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            break;
+          case METAL:
+
+              glEnable(GL_LIGHT0); // enable the first light source
+              glEnable(GL_LIGHTING); // enable Phong lighting
+              glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+              glMaterialfv(GL_FRONT, GL_AMBIENT, mat_ambient);
+              glMaterialfv(GL_FRONT, GL_DIFFUSE, mat_diffuse);
+              glMaterialfv(GL_FRONT, GL_SPECULAR, mat_specular);
+              glMaterialf(GL_FRONT,GL_SHININESS, 11.0);
+
+              glEnable(GL_COLOR_MATERIAL);                 	              // activate material
+              glColorMaterial(GL_FRONT,GL_AMBIENT_AND_DIFFUSE);
+              glColor3f(0.0f, 0.0f, 1.0f); // blue reflective properties
+
+            break;
+          case MATTE:
+
+              glEnable(GL_LIGHT0); // enable the first light source
+              glEnable(GL_LIGHTING); // enable Phong lighting
+              glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+              glMaterialfv(GL_FRONT, GL_AMBIENT, mat_ambient);
+              glMaterialfv(GL_FRONT, GL_DIFFUSE, mat_diffuse);
+              glMaterialfv(GL_FRONT, GL_SPECULAR, mat_specular);
+              glMaterialf(GL_FRONT,GL_SHININESS, 111.0);
+
+              glEnable(GL_COLOR_MATERIAL);                 	              // activate material
+              glColorMaterial(GL_FRONT,GL_AMBIENT_AND_DIFFUSE);
+
+              glColor3f(0.0f, 0.0f, 1.0f); // blue reflective properties
+
+            break;
+          default:
+            break;
+        }
 
 		// draw body part
-		glColor3f(1.0, 1.0, 1.0);
-		drawCube();
+
+		drawBody();
+
+        glScalef(1.0,1/BODY_SCALE,1.0);
+
+        // draw head
+        glPushMatrix();
+
+            glRotatef(joint_ui_data->getDOF(Keyframe::HEAD), 0.0, 1.0, 0.0);
+            glTranslatef(0.0,BODY_SCALE + HEAD_SCALE,0.0);
+
+            // determine render style and set glPolygonMode appropriately
+            switch(renderStyle){
+              case WIREFRAME:
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                glColor3f(0.0,0.0,0.0);
+                break;
+              case SOLID:
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                glColor3f(0.0,0.0,0.0);
+                break;
+              case OUTLINED:
+                glColor3f(0.0, 0.0, 0.0);
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                // glEnable(GL_POLYGON_OFFSET_FILL);
+    			// glPolygonOffset( 1, 1 );
+                drawHead();
+                glColor3f(1.0f,1.0f,1.0f);
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                break;
+              default:
+                glColor3f(0.0f, 0.0f, 1.0f); // blue reflective properties
+                break;
+            }
+
+            drawHead();
+            // draw beak
+            glPushMatrix();
+                glTranslatef(0.0,-0.2,0.0);
+
+
+                // top beak
+                glPushMatrix();
+                    glScalef(0.5,0.1,0.2);
+                    glTranslatef(-2.6, 1.0 + (joint_ui_data->getDOF(Keyframe::BEAK)), 0.0);
+
+                    // determine render style and set glPolygonMode appropriately
+                    switch(renderStyle){
+                      case WIREFRAME:
+                        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                        glColor3f(0.0,0.0,0.0);
+                        break;
+                      case SOLID:
+                        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                        glColor3f(255,145,0.0);
+                        break;
+                      case OUTLINED:
+                        glColor3f(255,145,0.0);
+                        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                        // glEnable(GL_POLYGON_OFFSET_FILL);
+                        // glPolygonOffset( 1, 1 );
+                        drawCube();
+                        glColor3f(0.0,0.0f,0.0);
+                        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                        break;
+                      default:
+                      glColor3f(255, 145, 0.0f);
+                        break;
+                    }
+
+                    drawCube();
+
+                glPopMatrix();
+                // bottom beak
+                glPushMatrix();
+                    glScalef(0.5,0.1,0.2);
+                    glTranslatef(-2.6, -1.0 - (joint_ui_data->getDOF(Keyframe::BEAK)), 0.0);
+
+                    // determine render style and set glPolygonMode appropriately
+                    switch(renderStyle){
+                      case WIREFRAME:
+                        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                        glColor3f(0.0,0.0,0.0);
+                        break;
+                      case SOLID:
+                        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                        glColor3f(255,145,0.0);
+                        break;
+                      case OUTLINED:
+                        glColor3f(255,145,0.0);
+                        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                        // glEnable(GL_POLYGON_OFFSET_FILL);
+                        // glPolygonOffset( 1, 1 );
+                        drawCube();
+                        glColor3f(0.0,0.0f,0.0);
+                        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                        break;
+                      default:
+                        glColor3f(255, 145, 0.0f);
+                        break;
+                    }
+
+                    drawCube();
+                glPopMatrix();
+
+
+            glPopMatrix();
+
+
+
+        glPopMatrix();
+
+        // draw left arm
+        glPushMatrix();
+            glTranslatef(0.0, 0.8, 1.0);     // move to joint
+            glRotatef(-7, 1.0, 0.0, 0.0);
+            // pitch, roll, yaw
+            glRotatef(joint_ui_data->getDOF(Keyframe::L_SHOULDER_ROLL), 1.0,0.0,0.0);
+            glRotatef(joint_ui_data->getDOF(Keyframe::L_SHOULDER_YAW),  0.0,1.0,0.0);
+            glRotatef(joint_ui_data->getDOF(Keyframe::L_SHOULDER_PITCH), 0.0,0.0,1.0);
+
+            glTranslatef(0.0, -0.8, -1.0);
+
+            glTranslatef(0.0,0.0,1.0);
+
+            // determine render style and set glPolygonMode appropriately
+            switch(renderStyle){
+              case WIREFRAME:
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                glColor3f(0.0,0.0,0.0);
+                break;
+              case SOLID:
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                glColor3f(0.0,0.0,0.0);
+                break;
+              case OUTLINED:
+                glColor3f(0.0,0.0,0.0);
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                // glEnable(GL_POLYGON_OFFSET_FILL);
+                // glPolygonOffset( 1, 1 );
+                drawArm();
+                glColor3f(1.0,1.0,1.0);
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                break;
+              default:
+                glColor3f(0.0, 0.0, 1.0f);
+                break;
+            }
+
+            drawArm();
+
+            // draw left hand
+            glPushMatrix();
+                glTranslatef(0.0,-1.5,0.0);
+
+                glTranslatef(0.0,0.5,0.0); // move down to joint
+                glRotatef(-joint_ui_data->getDOF(Keyframe::L_ELBOW), 0.0,0.0,1.0);
+                glTranslatef(0.0,-0.5,0.0);
+
+                switch(renderStyle){
+                  case WIREFRAME:
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                    glColor3f(0.0,0.0,0.0);
+                    break;
+                  case SOLID:
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                    glColor3f(255,145,0.0);
+                    break;
+                  case OUTLINED:
+                    glColor3f(255,145,0.0);
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                    // glEnable(GL_POLYGON_OFFSET_FILL);
+                    // glPolygonOffset( 1, 1 );
+                    drawHand();
+                    glColor3f(0.0,0.0,0.0);
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                    break;
+                  default:
+                    glColor3f(255, 145, 0.0f);
+                    break;
+                }
+
+                drawHand();
+            glPopMatrix();
+
+
+
+        glPopMatrix();
+
+        // draw right arm
+        glPushMatrix();
+            glTranslatef(0.0, 0.8, -1.0);
+            glRotatef(7, 1.0, 0.0, 0.0);
+            // pitch, roll, yaw
+            glRotatef(joint_ui_data->getDOF(Keyframe::R_SHOULDER_ROLL),  1.0,0.0,0.0);
+            glRotatef(joint_ui_data->getDOF(Keyframe::R_SHOULDER_YAW),   0.0,1.0,0.0);
+            glRotatef(joint_ui_data->getDOF(Keyframe::R_SHOULDER_PITCH), 0.0,0.0,1.0);
+
+            glTranslatef(0.0, -0.8, 1.0);
+
+            glTranslatef(0.0,0.0,-1.0);
+
+            // determine render style and set glPolygonMode appropriately
+            switch(renderStyle){
+              case WIREFRAME:
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                glColor3f(0.0,0.0,0.0);
+                break;
+              case SOLID:
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                glColor3f(0.0,0.0,0.0);
+                break;
+              case OUTLINED:
+                glColor3f(0.0,0.0,0.0);
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                // glEnable(GL_POLYGON_OFFSET_FILL);
+                // glPolygonOffset( 1, 1 );
+                drawArm();
+                glColor3f(1.0,1.0,1.0);
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                break;
+              default:
+                glColor3f(0.0, 0.0, 1.0f);
+                break;
+            }
+            drawArm();
+
+            // draw right hand
+            glPushMatrix();
+                glTranslatef(0.0,-1.5,0.0);
+
+                glTranslatef(0.0,0.5,0.0); // move down to joint
+                glRotatef(-joint_ui_data->getDOF(Keyframe::R_ELBOW),0.0,0.0,1.0);
+                glTranslatef(0.0,-0.5, 0.0);
+
+
+                switch(renderStyle){
+                  case WIREFRAME:
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                    glColor3f(0.0,0.0,0.0);
+                    break;
+                  case SOLID:
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                    glColor3f(255,145,0.0);
+                    break;
+                  case OUTLINED:
+                    glColor3f(255,145,0.0);
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                    // glEnable(GL_POLYGON_OFFSET_FILL);
+                    // glPolygonOffset( 1, 1 );
+                    drawHand();
+                    glColor3f(0.0,0.0,0.0);
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                    break;
+                  default:
+                    glColor3f(255, 145, 0.0f);
+                    break;
+                }
+
+                drawHand();
+
+            glPopMatrix();
+
+        glPopMatrix();
+
+        // draw left leg
+        glPushMatrix();
+
+            glTranslatef(0.0,-BODY_SCALE - 0.5, -0.6);
+
+            glTranslatef(0.0,0.3,0.0);
+
+            // 3 DOF
+            glRotatef(joint_ui_data->getDOF(Keyframe::L_HIP_ROLL),  1.0,0.0,0.0);
+            glRotatef(joint_ui_data->getDOF(Keyframe::L_HIP_YAW),   0.0,1.0,0.0);
+            glRotatef(joint_ui_data->getDOF(Keyframe::L_HIP_PITCH), 0.0,0.0,1.0);
+
+            glTranslatef(0.0,-0.3,0.0);
+
+
+            glScalef(0.2,0.5,0.2);
+            switch(renderStyle){
+              case WIREFRAME:
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                glColor3f(0.0,0.0,0.0);
+                break;
+              case SOLID:
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                glColor3f(0.0,0.0,0.0);
+                break;
+              case OUTLINED:
+                glColor3f(0.0,0.0,0.0);
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                // glEnable(GL_POLYGON_OFFSET_FILL);
+                // glPolygonOffset( 1, 1 );
+                drawCube();
+                glColor3f(1.0,1.0,1.0);
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                break;
+              default:
+                glColor3f(0.0, 0.0, 1.0f);
+                break;
+            }
+
+            drawCube();
+
+            glScalef(1/0.2,1/0.5,1/0.2);
+
+            // draw left foot
+            glPushMatrix();
+                glTranslatef(-0.2, -0.5, 0.0);
+
+                glTranslatef(0.2,0.0,0.0);
+                glRotatef(joint_ui_data->getDOF(Keyframe::L_KNEE), 0.0,0.0,1.0);
+                glTranslatef(-0.2,0.0,0.0);
+
+                switch(renderStyle){
+                  case WIREFRAME:
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                    glColor3f(0.0,0.0,0.0);
+                    break;
+                  case SOLID:
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                    glColor3f(255,145,0.0);
+                    break;
+                  case OUTLINED:
+                    glColor3f(255,145,0.0);
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                    // glEnable(GL_POLYGON_OFFSET_FILL);
+                    // glPolygonOffset( 1, 1 );
+                    drawFoot();
+                    glColor3f(0.0,0.0,0.0);
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                    break;
+                  default:
+                    glColor3f(255, 145, 0.0f);
+                    break;
+                }
+
+                drawFoot();
+
+            glPopMatrix();
+
+
+
+        glPopMatrix();
+
+
+        // draw right leg
+        glPushMatrix();
+
+            glTranslatef(0.0,-BODY_SCALE - 0.5, 0.6);
+
+            glTranslatef(0.0,0.3,0.0);
+
+            // 3 DOF
+            glRotatef(joint_ui_data->getDOF(Keyframe::R_HIP_ROLL),  1.0,0.0,0.0);
+            glRotatef(joint_ui_data->getDOF(Keyframe::R_HIP_YAW),   0.0,1.0,0.0);
+            glRotatef(joint_ui_data->getDOF(Keyframe::R_HIP_PITCH), 0.0,0.0,1.0);
+
+            glTranslatef(0.0,-0.3,0.0);
+
+
+            glScalef(0.2,0.5,0.2);
+            switch(renderStyle){
+              case WIREFRAME:
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                glColor3f(0.0,0.0,0.0);
+                break;
+              case SOLID:
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                glColor3f(0.0,0.0,0.0);
+                break;
+              case OUTLINED:
+                glColor3f(0.0,0.0,0.0);
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                // glEnable(GL_POLYGON_OFFSET_FILL);
+                // glPolygonOffset( 1, 1 );
+                drawCube();
+                glColor3f(1.0,1.0,1.0);
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                break;
+              default:
+                glColor3f(0.0, 0.0, 1.0f);
+                break;
+            }
+
+            drawCube();
+            glScalef(1/0.2,1/0.5,1/0.2);
+
+            // draw left foot
+            glPushMatrix();
+                glTranslatef(-0.2, -0.5, 0.0);
+
+                glTranslatef(0.2,0.0,0.0);
+                glRotatef(joint_ui_data->getDOF(Keyframe::R_KNEE), 0.0,0.0,1.0);
+                glTranslatef(-0.2,0.0,0.0);
+
+                switch(renderStyle){
+                  case WIREFRAME:
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                    glColor3f(0.0,0.0,0.0);
+                    break;
+                  case SOLID:
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                    glColor3f(255,145,0.0);
+                    break;
+                  case OUTLINED:
+                    glColor3f(255,145,0.0);
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                    // glEnable(GL_POLYGON_OFFSET_FILL);
+                    // glPolygonOffset( 1, 1 );
+                    drawFoot();
+                    glColor3f(0.0,0.0,0.0);
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                    break;
+                  default:
+                    glColor3f(255, 145, 0.0f);
+                    break;
+                }
+
+                drawFoot();
+
+            glPopMatrix();
+
+
+
+        glPopMatrix();
+
+		glDisable(GL_LIGHTING);
+		glDisable(GL_LIGHT0);
+		// glDisable(GL_LIGHT1);
+		glDisable(GL_COLOR_MATERIAL);                 	              // activate material
+  // 		glDisable(GL_NORMALIZE);
+
+
 
 	glPopMatrix();
 	//
@@ -932,42 +1486,287 @@ void drawCube()
 {
 	glBegin(GL_QUADS);
 		// draw front face
+        glNormal3f( 0.0,  0.0, 1.0);
 		glVertex3f(-1.0, -1.0, 1.0);
 		glVertex3f( 1.0, -1.0, 1.0);
 		glVertex3f( 1.0,  1.0, 1.0);
 		glVertex3f(-1.0,  1.0, 1.0);
 
 		// draw back face
+        glNormal3f( 0.0,  0.0, -1.0);
+        glNormal3f( 0.0, -1.0, 0.0);
 		glVertex3f( 1.0, -1.0, -1.0);
 		glVertex3f(-1.0, -1.0, -1.0);
 		glVertex3f(-1.0,  1.0, -1.0);
 		glVertex3f( 1.0,  1.0, -1.0);
 
 		// draw left face
+        glNormal3f(-1.0,  0.0,  0.0);
 		glVertex3f(-1.0, -1.0, -1.0);
 		glVertex3f(-1.0, -1.0,  1.0);
 		glVertex3f(-1.0,  1.0,  1.0);
 		glVertex3f(-1.0,  1.0, -1.0);
 
 		// draw right face
+        glNormal3f( 1.0,  0.0,  0.0);
 		glVertex3f( 1.0, -1.0,  1.0);
 		glVertex3f( 1.0, -1.0, -1.0);
 		glVertex3f( 1.0,  1.0, -1.0);
 		glVertex3f( 1.0,  1.0,  1.0);
 
 		// draw top
+        glNormal3f( 0.0,  1.0,  0.0);
 		glVertex3f(-1.0,  1.0,  1.0);
 		glVertex3f( 1.0,  1.0,  1.0);
 		glVertex3f( 1.0,  1.0, -1.0);
 		glVertex3f(-1.0,  1.0, -1.0);
 
 		// draw bottom
+        glNormal3f( 0.0, -1.0,  0.0);
 		glVertex3f(-1.0, -1.0, -1.0);
 		glVertex3f( 1.0, -1.0, -1.0);
 		glVertex3f( 1.0, -1.0,  1.0);
 		glVertex3f(-1.0, -1.0,  1.0);
 	glEnd();
 }
+
+void drawBody()
+{
+	glBegin(GL_QUADS);
+        glNormal3f(0.0,  -0.8, 4.0);
+		glVertex3f(-1.0, -1.0, 1.0);
+		glVertex3f( 1.0, -1.0, 1.0);
+		glVertex3f( 0.6,  1.0, 0.6);
+		glVertex3f(-0.6,  1.0, 0.6);
+
+		// draw back face
+        glNormal3f(0.0, -0.8, -4.0);
+		glVertex3f( 1.0, -1.0, -1.0);
+		glVertex3f(-1.0, -1.0, -1.0);
+		glVertex3f(-0.6,  1.0, -0.6);
+		glVertex3f( 0.6,  1.0, -0.6);
+
+		// draw left face
+        glNormal3f(-4.0, -0.8, 0.0);
+		glVertex3f(-1.0, -1.0, -1.0);
+		glVertex3f(-1.0, -1.0,  1.0);
+		glVertex3f(-0.6,  1.0,  0.6);
+		glVertex3f(-0.6,  1.0, -0.6);
+
+		// draw right face
+        glNormal3f(4.0, -0.8, 0.0);
+		glVertex3f( 1.0, -1.0,  1.0);
+		glVertex3f( 1.0, -1.0, -1.0);
+		glVertex3f( 0.6,  1.0, -0.6);
+		glVertex3f(0.6,  1.0,  0.6);
+
+		// draw top
+        glNormal3f(0.0, 1.0, 0.0);
+		glVertex3f(-0.6,  1.0,  0.6);
+		glVertex3f( 0.6,  1.0,  0.6);
+		glVertex3f( 0.6,  1.0, -0.6);
+		glVertex3f(-0.6,  1.0, -0.6);
+
+		// draw bottom
+        glNormal3f(0.0,-1.0,0.0);
+		glVertex3f(-1.0, -1.0, -1.0);
+		glVertex3f( 1.0, -1.0, -1.0);
+		glVertex3f( 1.0, -1.0,  1.0);
+		glVertex3f(-1.0, -1.0,  1.0);
+	glEnd();
+}
+
+void drawHead()
+{
+	glBegin(GL_QUADS);
+		// draw front face
+        glNormal3f(0.0, 0.4, 4.0);
+		glVertex3f(-1.0, -1.0, 1.0);
+		glVertex3f( 1.0, -1.0, 1.0);
+		glVertex3f( 0.8,  1.0, 0.8);
+		glVertex3f(-0.8,  1.0, 0.8);
+
+		// draw back face
+        glNormal3f(0.0, 0.4, -4.0);
+		glVertex3f( 1.0, -1.0, -1.0);
+		glVertex3f(-1.0, -1.0, -1.0);
+		glVertex3f(-0.8,  1.0, -0.8);
+		glVertex3f( 0.8,  1.0, -0.8);
+
+		// draw left face
+        glNormal3f(-4.0, 0.4, 0.0);
+		glVertex3f(-1.0, -1.0, -1.0);
+		glVertex3f(-1.0, -1.0,  1.0);
+		glVertex3f(-0.8,  1.0,  0.8);
+		glVertex3f(-0.8,  1.0, -0.8);
+
+		// draw right face
+        glNormal3f(4.0, 0.4, 0.0);
+		glVertex3f( 1.0, -1.0,  1.0);
+		glVertex3f( 1.0, -1.0, -1.0);
+		glVertex3f( 0.8,  1.0, -0.8);
+		glVertex3f(0.8,  1.0,  0.8);
+
+		// draw top
+        glNormal3f(0.0, 1.0, 0.0);
+		glVertex3f(-0.8,  1.0,  0.8);
+		glVertex3f( 0.8,  1.0,  0.8);
+		glVertex3f( 0.8,  1.0, -0.8);
+		glVertex3f(-0.8,  1.0, -0.8);
+
+		// draw bottom
+        glNormal3f(0.0, -1.0, 0.0);
+		glVertex3f(-1.0, -1.0, -1.0);
+		glVertex3f( 1.0, -1.0, -1.0);
+		glVertex3f( 1.0, -1.0,  1.0);
+		glVertex3f(-1.0, -1.0,  1.0);
+	glEnd();
+}
+
+//Draw an Arm
+void drawArm()
+{
+	glBegin(GL_QUADS);
+		// draw front face
+		glNormal3f( 0.0, 0.0, 1.0);
+        glVertex3f(-0.5, 1.0, 0.3);
+		glVertex3f( 0.5, 1.0, 0.3);
+		glVertex3f( 0.3, -1.0, 0.3);
+		glVertex3f(-0.3, -1.0, 0.3);
+
+		// draw back face
+        glNormal3f( 0.0, 0.0, -1.0);
+        glVertex3f( 0.5, 1.0, -0.3);
+		glVertex3f(-0.5, 1.0, -0.3);
+		glVertex3f(-0.3, -1.0, -0.3);
+		glVertex3f( 0.3, -1.0, -0.3);
+
+		// draw left face
+        glNormal3f(-0.6, -0.06,-0.8);
+
+        glVertex3f(-0.3, -1.0, -0.3);
+		glVertex3f(-0.3, -1.0,  0.3);
+		glVertex3f(-0.5,  1.0,  0.3);
+		glVertex3f(-0.5,  1.0, -0.3);
+
+		// // draw right face
+		glNormal3f( 1.2, -0.12, 0);
+
+        glVertex3f( 0.3, -1.0,  0.3);
+		glVertex3f( 0.3, -1.0, -0.3);
+		glVertex3f( 0.5,  1.0, -0.3);
+		glVertex3f( 0.5,  1.0,  0.3);
+
+		// draw top
+        glNormal3f( 0.0, 1.0, 0.0);
+        glVertex3f(-0.5, 1.0, -0.3);
+		glVertex3f( 0.5, 1.0, -0.3);
+		glVertex3f( 0.5, 1.0,  0.3);
+		glVertex3f(-0.5, 1.0,  0.3);
+
+		// draw bottom
+        glNormal3f( 0.0, -1.0, 0.0);
+        glVertex3f(-0.3,  -1.0,  0.3);
+        glVertex3f( 0.3,  -1.0,  0.3);
+        glVertex3f( 0.3,  -1.0, -0.3);
+        glVertex3f(-0.3,  -1.0, -0.3);
+
+	glEnd();
+}
+
+//Draw an Arm
+void drawHand()
+{
+	glBegin(GL_QUADS);
+		// draw front face
+        glNormal3f( 0.0, 0.0, 1.0);
+		glVertex3f(-0.5, 0.5, 0.3);
+		glVertex3f( 0.5, 0.5, 0.3);
+		glVertex3f( 0.3, -0.5, 0.3);
+		glVertex3f(-0.3, -0.5, 0.3);
+
+		// draw back face
+        glNormal3f( 0.0, 0.0, -1.0);
+		glVertex3f( 0.5, 0.5, -0.3);
+		glVertex3f(-0.5, 0.5, -0.3);
+		glVertex3f(-0.3, -0.5, -0.3);
+		glVertex3f( 0.3, -0.5, -0.3);
+
+		// draw left face
+        glNormal3f(-0.6, -0.12, 0.0);
+		glVertex3f(-0.3, -0.5, -0.3);
+		glVertex3f(-0.3, -0.5,  0.3);
+		glVertex3f(-0.5,  0.5,  0.3);
+		glVertex3f(-0.5,  0.5, -0.3);
+
+		// // draw right face
+        glNormal3f( 0.6,-0.12, 0.0);
+		glVertex3f( 0.3, -0.5,  0.3);
+		glVertex3f( 0.3, -0.5, -0.3);
+		glVertex3f( 0.5,  0.5, -0.3);
+		glVertex3f( 0.5,  0.5,  0.3);
+
+		// draw top
+        glNormal3f(0.0, 1.0, 0.0);
+        glVertex3f(-0.5, 0.5, -0.3);
+		glVertex3f( 0.5, 0.5, -0.3);
+		glVertex3f( 0.5, 0.5,  0.3);
+		glVertex3f(-0.5, 0.5,  0.3);
+
+		// draw bottom
+        glNormal3f(0.0, -1.0, 0.0);
+        glVertex3f(-0.3,  -0.5,  0.3);
+        glVertex3f( 0.3,  -0.5,  0.3);
+        glVertex3f( 0.3,  -0.5, -0.3);
+        glVertex3f(-0.3,  -0.5, -0.3);
+
+	glEnd();
+}
+
+//Draw a foot
+void drawFoot()
+{
+    glBegin(GL_TRIANGLES);
+        // top face
+        glNormal3f(0.0, 1.0, 0.0);
+        glVertex3f(-0.5, 0.1, -0.5);
+        glVertex3f(-0.5, 0.1, 0.5);
+        glVertex3f( 0.5, 0.1, 0.0);
+
+        // bottom face
+        glNormal3f(0.0, -1.0, 0.0);
+        glVertex3f(-0.5, -0.1, -0.5);
+        glVertex3f(-0.5, -0.1, 0.5);
+        glVertex3f( 0.5, -0.1, 0.0);
+
+    glEnd();
+
+	glBegin(GL_QUADS);
+
+          // left face
+          glNormal3f(-1.0, 0.0, 0.0);
+          glVertex3f(-0.5, 0.1,-0.5);
+          glVertex3f(-0.5,-0.1,-0.5);
+          glVertex3f(-0.5,-0.1, 0.5);
+          glVertex3f(-0.5, 0.1, 0.5);
+
+          // front face
+          glNormal3f(0.1, 0.0, 0.2);
+          glVertex3f(-0.5, 0.1,0.5);
+          glVertex3f(-0.5,-0.1,0.5);
+          glVertex3f( 0.5,-0.1,0.0);
+          glVertex3f( 0.5, 0.1,0.0);
+
+          // back face
+          glNormal3f(0.1, 0.0, -0.2);
+          glVertex3f( 0.5, 0.1, 0.0);
+          glVertex3f( 0.5,-0.1, 0.0);
+          glVertex3f(-0.5,-0.1,-0.5);
+          glVertex3f(-0.5, 0.1,-0.5);
+
+	glEnd();
+}
+
 
 ///////////////////////////////////////////////////////////
 //
