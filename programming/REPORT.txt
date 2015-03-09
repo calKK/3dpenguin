@@ -1,0 +1,30 @@
+
+To design the different body parts for the penguin, I used the GL_QUADS draw method, and defined
+the vertices for each face. For the foot there are two triangular faces, so i drew them using GL_TRIANGLES. After defining
+the faces of the polygon, I calculated the normals for each face which are required for lighting effects.
+
+To render the polygons, I followed a similar sequence of matrix pushes and pops prior to drawing each body part, and
+contained all of the body parts within the root's coordinate space - similar to assignment 1. This makes sure a body part that
+is a child of the parent moves along with its parent.
+
+A translation was required to where the joint is to implement the DOFs. For cases when 3 DOFS were needed, each rotation for each
+axis of rotation is performed sequentially. After the rotations are set, the part is moved back to its origin.
+
+On initialization, I enabled GL_DEPTH_TEST for z-buffering, and also GL_NORMALIZE, so that the normals I define for the polygon
+faces are normalized which is required for the lighting to work.
+
+To handle the different modes of rendering, prior to drawing each body part, the variable 'renderStyle' is checked to
+find out which mode of drawing is enabled.
+    - Wireframe is handled by setting the glPolygonMode's second parameter to GL_LINE.
+    - Solid is handled by setting glPolygonMode to GL_FILL.
+    - Solid w/ outlines is handled by first drawing with a fill, then enabling offset fill and setting the offset and then
+        drawing again in line mode.
+    - On the render modes MAtte and Metalic, if they are enabled, the lighting which is set with the defined attributes are
+        enabled and its material properties are set on the object. For matte rendering, I set the shinniness to a minimum, and
+        for metallic I set the shinniness high to near its max of 128.
+
+To move the lighting position - prior to setting its position. I push the current matrix and do a translate to the light's
+set radius from the UI. and then do a rotation then setting the position of the light before popping the matrix.
+
+The keyframing functionality was straightforward, filling in the skeleton code, and then I created a small animation which can be
+played back. Nothing fancy, but It shows some basic movements.

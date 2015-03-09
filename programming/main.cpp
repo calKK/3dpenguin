@@ -899,9 +899,6 @@ void display(void)
     GLfloat diffuse[] = {1.0,1.0,1.0,1.0};
     GLfloat specular[] = {1.0,1.0,1.0,1.0};
     GLfloat position[] = {0.0,LIGHT_RADIUS_MIN,0.0,1.0};
-    //
-    // position[0] = cos(joint_ui_data->getDOF(Keyframe::LIGHT_ROTATE));
-    // position[1] = sin(joint_ui_data->getDOF(Keyframe::LIGHT_ROTATE));
 
     glLightfv(GL_LIGHT0, GL_AMBIENT, ambient);
 	glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuse);
@@ -942,8 +939,11 @@ void display(void)
           case OUTLINED:
             glColor3f(0.0, 0.0, 0.0);
             glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+            // enable polygon offset for lines to show through depth.
             glEnable(GL_POLYGON_OFFSET_FILL);
-      			glPolygonOffset( 1, 1 );
+  			glPolygonOffset( 1, 1 );
+
             drawBody();
             glColor3f(1.0f,1.0f,1.0f);
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -1417,9 +1417,9 @@ void display(void)
 
 		glDisable(GL_LIGHTING);
 		glDisable(GL_LIGHT0);
-		// glDisable(GL_LIGHT1);
+
 		glDisable(GL_COLOR_MATERIAL);                 	              // activate material
-  // 		glDisable(GL_NORMALIZE);
+
 
 
 
